@@ -55,37 +55,16 @@ async function sendViaBotbiz(recipientNumber, message) {
     // Format the phone number (remove any '+' prefix)
     const formattedNumber = recipientNumber.replace('+', '');
 
-    // First get CSRF token
-    const csrfResponse = await axios.get('https://dash.botbiz.io/sanctum/csrf-cookie', {
-      withCredentials: true,
-      headers: {
-        'Accept': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest'
-      }
-    });
-
-    // Get the CSRF token from cookies
-    const csrfToken = decodeURIComponent(
-      csrfResponse.headers['set-cookie']
-        ?.find(cookie => cookie.startsWith('XSRF-TOKEN='))
-        ?.split(';')[0]
-        ?.split('=')[1]
-    );
-
-    // Get the session cookie
-    const sessionCookie = csrfResponse.headers['set-cookie']
-      ?.find(cookie => cookie.startsWith('botbiz_session='))
-      ?.split(';')[0];
-
     // Prepare the message payload
     const payload = {
-      from: providers.botbiz.phoneNumber, // Our registered BotBiz number
       to: formattedNumber,
-      type: 'text',
-      text: message
+      message: {
+        type: 'text',
+        text: message
+      }
     };
 
-    // Make the API request with CSRF token and session cookie
+    // Make the API request with Bearer token only
     const response = await axios.post(
       'https://dash.botbiz.io/v1/messages/send',
       payload,
@@ -93,12 +72,9 @@ async function sendViaBotbiz(recipientNumber, message) {
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-          'X-XSRF-TOKEN': csrfToken,
-          'Authorization': `Bearer ${process.env.BOTBIZ_API_KEY}`,
-          'Cookie': sessionCookie
+          'Authorization': `Bearer ${process.env.BOTBIZ_API_KEY}`
         },
-        withCredentials: true
+        withCredentials: false
       }
     );
 
