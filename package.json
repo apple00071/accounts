@@ -1,0 +1,14 @@
+{
+  "name": "whatsapp-accounting",
+  "version": "1.0.0",
+  "description": "WhatsApp-based accounting solution",
+  "scripts": {
+    "start": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
+    "install-all": "concurrently \"cd backend && npm install\" \"cd frontend && npm install\"",
+    "backend": "cd backend && npm run dev",
+    "frontend": "cd frontend && npm run dev"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+} 
