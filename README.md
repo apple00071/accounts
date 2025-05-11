@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # WhatsApp Accounting
 
 A WhatsApp-based accounting solution for small business owners. Track customer payments, calculate balances, and manage payment history through WhatsApp messages and an admin dashboard.
@@ -137,3 +138,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details. 
+=======
+# accounts
+>>>>>>> 939350cccdb51a0a49be7be2f6733c5ad7576870
