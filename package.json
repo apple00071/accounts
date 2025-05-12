@@ -4,7 +4,7 @@
   "description": "WhatsApp-based accounting solution",
   "scripts": {
     "start": "cd backend && npm start",
-    "build": "cd backend && npm install && npm run build",
+    "build": "cd backend && npm install && npx prisma generate && npm run build",
     "dev": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
     "install-all": "npm install && cd backend && npm install && cd ../frontend && npm install"
   },
