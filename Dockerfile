@@ -8,23 +8,29 @@ RUN apt-get update -y && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy package files
+# Copy package files and prisma schema
 COPY package*.json ./
 COPY backend/package*.json ./backend/
 COPY frontend/package*.json ./frontend/
+COPY backend/prisma ./backend/prisma/
 
-# Install dependencies
-RUN npm run install-all
+# Install root dependencies first
+RUN npm install
+
+# Install backend dependencies and generate Prisma client
+WORKDIR /app/backend
+RUN npm install
+RUN npx prisma generate
+
+# Install frontend dependencies
+WORKDIR /app/frontend
+RUN npm install
+
+# Back to root directory
+WORKDIR /app
 
 # Copy the rest of the application
 COPY . .
-
-# Generate Prisma client
-RUN cd backend && \
-    npx prisma generate
-
-# Build the application
-RUN npm run build
 
 # Set environment variables
 ENV NODE_ENV=production
