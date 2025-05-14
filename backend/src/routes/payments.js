@@ -47,12 +47,29 @@ router.post('/', async (req, res) => {
 // Get payment summary
 router.get('/summary', async (req, res) => {
   try {
-    // Get all payments
+    console.log('Fetching payment summary...');
+    
+    // Set no-cache headers
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Surrogate-Control': 'no-store',
+      'ETag': Date.now().toString() // Force client to revalidate
+    });
+
+    // Get all payments with fresh data
     const { data: payments, error: paymentsError } = await supabase
       .from('payments')
-      .select('amount, direction');
+      .select('amount, direction')
+      .order('created_at', { ascending: false });
 
-    if (paymentsError) throw paymentsError;
+    if (paymentsError) {
+      console.error('Error fetching payments:', paymentsError);
+      throw paymentsError;
+    }
+    
+    console.log(`Found ${payments.length} payments`);
     
     const summary = payments.reduce((acc, payment) => {
       if (payment.direction === 'CREDIT') {
@@ -65,7 +82,9 @@ router.get('/summary', async (req, res) => {
 
     const outstandingBalance = summary.totalReceived - summary.totalPaid;
 
-    // Get recent transactions
+    console.log('Calculated summary:', summary);
+
+    // Get recent transactions with fresh data
     const { data: recentTransactions, error: recentError } = await supabase
       .from('payments')
       .select(`
@@ -75,18 +94,26 @@ router.get('/summary', async (req, res) => {
           phone_number
         )
       `)
-      .order('date', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(5);
 
-    if (recentError) throw recentError;
+    if (recentError) {
+      console.error('Error fetching recent transactions:', recentError);
+      throw recentError;
+    }
 
-    res.json({
+    console.log(`Found ${recentTransactions.length} recent transactions`);
+
+    const response = {
       summary: {
         ...summary,
         outstandingBalance
       },
       recentTransactions
-    });
+    };
+
+    console.log('Sending response:', response);
+    res.json(response);
   } catch (error) {
     console.error('Error fetching summary:', error);
     res.status(500).json({ error: 'Failed to fetch summary' });

@@ -54,36 +54,53 @@ router.post('/', async (req, res) => {
     // Verify webhook token
     const token = req.query.token;
     if (!verifyWebhook(token)) {
+      console.error('Webhook verification failed:', { receivedToken: token });
       return res.status(401).json({ error: 'Invalid verification token' });
     }
 
-    console.log('Received BotBiz webhook payload');
-    console.log('BotBiz webhook data:', JSON.stringify(req.body, null, 2));
+    console.log('=== START WEBHOOK PROCESSING ===');
+    console.log('Received webhook payload:', JSON.stringify(req.body, null, 2));
 
     const { messages } = req.body;
     if (!messages || !Array.isArray(messages)) {
-      return res.json({ success: true, processed: 0, messages: [] });
+      console.log('No messages to process in payload');
+      return res.json({ 
+        success: true, 
+        message: 'No messages to process',
+        data: { processed: 0, messages: [] }
+      });
     }
 
     let processed = 0;
     const processedMessages = [];
 
     for (const message of messages) {
+      console.log('\n--- Processing Message ---');
       // Extract the sender's phone number and message text
-      // Note: In webhook, 'to' field is actually the sender's number
-      const senderNumber = message.to; // BotBiz sends the sender's number in 'to' field
+      const senderNumber = message.from;
       const messageText = message.text?.body;
 
+      console.log('Message details:', {
+        id: message.id,
+        from: senderNumber,
+        text: messageText,
+        timestamp: message.timestamp
+      });
+
       if (!senderNumber || !messageText) {
-        console.log('Skipping message - missing required fields');
+        console.log('Skipping message - missing required fields:', { senderNumber, messageText });
         continue;
       }
 
       try {
         // Parse and handle the message using the webhook handlers
+        console.log('Parsing message text:', messageText);
         const parsedMessage = require('../utils/messageParser').parseMessage(messageText);
+        console.log('Parsed message result:', parsedMessage);
         
         let response;
+        console.log('Processing message type:', parsedMessage.type);
+        
         switch (parsedMessage.type) {
           case 'GREETING':
             response = handlers.handleGreeting(senderNumber);
@@ -92,7 +109,9 @@ router.post('/', async (req, res) => {
             response = handlers.handleHelp();
             break;
           case 'PAYMENT':
+            console.log('Processing payment with data:', parsedMessage);
             response = await handlers.handlePayment(parsedMessage, senderNumber);
+            console.log('Payment processing result:', response);
             break;
           case 'BALANCE_QUERY':
             response = await handlers.handleBalanceQuery(parsedMessage.name, senderNumber);
@@ -106,37 +125,58 @@ router.post('/', async (req, res) => {
 
         // Send response back to the user
         const responseMessage = response.responseMessage || response.message;
-        await sendWhatsAppMessage(senderNumber, responseMessage);
+        console.log('Sending response to user:', responseMessage);
+        
+        const sendResult = await sendWhatsAppMessage(senderNumber, responseMessage);
+        console.log('WhatsApp send result:', sendResult);
 
-        processed++;
-        processedMessages.push({
-          id: message.id,
-          status: 'processed',
-          response: responseMessage
-        });
+        if (sendResult.success) {
+          processed++;
+          processedMessages.push({
+            id: message.id,
+            status: 'success',
+            response: responseMessage,
+            messageId: sendResult.data?.messageId
+          });
+          console.log('Message processed successfully');
+        } else {
+          console.error('Failed to send WhatsApp response:', sendResult.error);
+          processedMessages.push({
+            id: message.id,
+            status: 'error',
+            error: sendResult.error?.message || 'Failed to send response'
+          });
+        }
 
-        console.log(`Successfully processed message from ${senderNumber}`);
       } catch (error) {
-        console.error(`Error processing message from ${senderNumber}:`, error);
+        console.error('Error processing message:', error);
         processedMessages.push({
           id: message.id,
           status: 'error',
           error: error.message
         });
       }
+      console.log('--- End Processing Message ---\n');
     }
 
+    console.log(`=== END WEBHOOK PROCESSING (Processed: ${processed}) ===`);
+    
+    // Send response in BotBiz expected format
     res.json({
       success: true,
-      processed,
-      messages: processedMessages
+      message: `Processed ${processed} messages`,
+      data: {
+        processed,
+        messages: processedMessages
+      }
     });
+
   } catch (error) {
-    console.error('Error processing BotBiz webhook:', error);
+    console.error('Error in BotBiz webhook:', error);
     res.status(500).json({
       success: false,
-      error: 'Internal server error',
-      message: error.message
+      message: 'Internal server error',
+      error: error.message
     });
   }
 });

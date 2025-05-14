@@ -7,26 +7,25 @@
 
 module.exports = {
   // Base API URL
-  baseUrl: 'https://dash.botbiz.io/v1',
+  baseUrl: 'https://api.botbiz.io',
   
   // API Endpoints
   endpoints: {
-    send: '/send',
-    messages: '/messages'
+    send: '/api/v1/messages/send',
+    messages: '/api/v1/messages/list'
   },
   
   // Default headers
   getHeaders: (apiKey) => ({
     'Authorization': `Bearer ${apiKey}`,
     'Content-Type': 'application/json',
-    'Accept': 'application/json',
-    'X-Requested-With': 'XMLHttpRequest'
+    'Accept': 'application/json'
   }),
   
   // Webhook configuration
   webhook: {
     verifyToken: process.env.BOTBIZ_VERIFY_TOKEN || '8450385012773603920',
-    path: '/webhook'
+    path: '/webhook/whatsapp-webhook'
   },
   
   // Message format options
@@ -38,6 +37,9 @@ module.exports = {
     video: 'video',
     location: 'location'
   },
+  
+  // Polling configuration
+  pollingInterval: parseInt(process.env.BOTBIZ_POLLING_INTERVAL, 10) || 10000, // Default to 10 seconds
   
   // Logging options
   logging: {

@@ -153,4 +153,29 @@ router.post('/', async (req, res) => {
   }
 });
 
+// Update customer
+router.put('/:id', async (req, res) => {
+  try {
+    const { name, phoneNumber } = req.body;
+
+    // Update customer
+    const { data: customer, error } = await supabase
+      .from('customers')
+      .update({ 
+        name,
+        phone_number: phoneNumber || '' // Use empty string instead of null
+      })
+      .eq('id', req.params.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.json(customer);
+  } catch (error) {
+    console.error('Error updating customer:', error);
+    res.status(500).json({ error: 'Failed to update customer' });
+  }
+});
+
 module.exports = router; 

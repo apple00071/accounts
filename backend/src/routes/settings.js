@@ -1,59 +1,35 @@
 const express = require('express');
 const router = express.Router();
-const { PrismaClient } = require('@prisma/client');
 const { sendWhatsAppMessage } = require('../utils/whatsappProvider');
-
-const prisma = new PrismaClient();
 
 // Get WhatsApp settings
 router.get('/whatsapp', async (req, res) => {
   try {
-    // In a real app, you would retrieve these from a database
-    // For now, we'll return the environment variables if they exist
-    // (with sensitive data partially masked)
-    
-    const botbizApiKey = process.env.BOTBIZ_API_KEY || '';
-    const botbizPhoneNumber = process.env.BOTBIZ_PHONE_NUMBER || '';
-    const botbizVerifyToken = process.env.BOTBIZ_VERIFY_TOKEN || '';
-    
-    const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID || '';
-    const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN || '';
-    const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER || '';
-    
-    const dialogApiKey = process.env.DIALOG360_API_KEY || '';
-    const dialogPhoneNumberId = process.env.DIALOG360_PHONE_NUMBER_ID || '';
-    
-    const metaAppId = process.env.META_APP_ID || '';
-    const metaAppSecret = process.env.META_APP_SECRET || '';
-    const metaPhoneNumberId = process.env.META_PHONE_NUMBER_ID || '';
-    const metaAccessToken = process.env.META_ACCESS_TOKEN || '';
-    const metaWebhookVerifyToken = process.env.META_WEBHOOK_VERIFY_TOKEN || '';
-    
     // Return settings with masked sensitive data
     res.json({
       botbiz: {
-        apiKey: maskSensitiveData(botbizApiKey),
-        phoneNumber: botbizPhoneNumber,
-        verifyToken: maskSensitiveData(botbizVerifyToken),
+        apiKey: maskSensitiveData(process.env.BOTBIZ_API_KEY || ''),
+        phoneNumber: process.env.BOTBIZ_PHONE_NUMBER || '',
+        verifyToken: maskSensitiveData(process.env.BOTBIZ_VERIFY_TOKEN || ''),
         enabled: Boolean(process.env.BOTBIZ_ENABLED === 'true')
       },
       twilio: {
-        accountSid: maskSensitiveData(twilioAccountSid),
-        authToken: maskSensitiveData(twilioAuthToken),
-        phoneNumber: twilioPhoneNumber,
+        accountSid: maskSensitiveData(process.env.TWILIO_ACCOUNT_SID || ''),
+        authToken: maskSensitiveData(process.env.TWILIO_AUTH_TOKEN || ''),
+        phoneNumber: process.env.TWILIO_PHONE_NUMBER || '',
         enabled: Boolean(process.env.TWILIO_ENABLED === 'true')
       },
       threeSixtyDialog: {
-        apiKey: maskSensitiveData(dialogApiKey),
-        phoneNumberId: dialogPhoneNumberId,
+        apiKey: maskSensitiveData(process.env.DIALOG360_API_KEY || ''),
+        phoneNumberId: process.env.DIALOG360_PHONE_NUMBER_ID || '',
         enabled: Boolean(process.env.DIALOG360_ENABLED === 'true')
       },
       meta: {
-        appId: maskSensitiveData(metaAppId),
-        appSecret: maskSensitiveData(metaAppSecret),
-        phoneNumberId: metaPhoneNumberId,
-        accessToken: maskSensitiveData(metaAccessToken),
-        webhookVerifyToken: maskSensitiveData(metaWebhookVerifyToken),
+        appId: maskSensitiveData(process.env.META_APP_ID || ''),
+        appSecret: maskSensitiveData(process.env.META_APP_SECRET || ''),
+        phoneNumberId: process.env.META_PHONE_NUMBER_ID || '',
+        accessToken: maskSensitiveData(process.env.META_ACCESS_TOKEN || ''),
+        webhookVerifyToken: maskSensitiveData(process.env.META_WEBHOOK_VERIFY_TOKEN || ''),
         enabled: Boolean(process.env.META_ENABLED === 'true')
       }
     });

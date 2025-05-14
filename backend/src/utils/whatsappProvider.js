@@ -109,11 +109,15 @@ async function sendViaTwilio(to, message) {
       providers.twilio.accountSid,
       providers.twilio.authToken
     );
+
+    // Clean the phone numbers
+    const cleanTo = to.replace(/^whatsapp:/, '').replace(/^\+/, '');
+    const cleanFrom = providers.twilio.phoneNumber.replace(/^whatsapp:/, '').replace(/^\+/, '');
     
     const response = await twilioClient.messages.create({
-      from: `whatsapp:${providers.twilio.phoneNumber}`,
+      from: `whatsapp:+${cleanFrom}`,
       body: message,
-      to: `whatsapp:${to}`
+      to: `whatsapp:+${cleanTo}`
     });
     
     return {

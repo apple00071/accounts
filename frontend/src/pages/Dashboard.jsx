@@ -32,16 +32,26 @@ export default function Dashboard() {
       try {
         setLoading(true);
         setError(null);
+        console.log('Fetching dashboard summary...');
         const response = await getSummary();
+        console.log('Dashboard summary response:', response.data);
         setSummaryData(response.data);
       } catch (err) {
+        console.error('Error fetching summary:', err);
         setError(err.message || 'Failed to fetch summary data');
       } finally {
         setLoading(false);
       }
     };
 
+    // Initial fetch
     fetchSummary();
+
+    // Set up polling every 2 seconds (increased from 5 seconds)
+    const intervalId = setInterval(fetchSummary, 2000);
+
+    // Cleanup interval on component unmount
+    return () => clearInterval(intervalId);
   }, []);
 
   if (loading) {
@@ -202,9 +212,14 @@ export default function Dashboard() {
                       </div>
                     </div>
                     <div className="flex items-center justify-between mt-1">
-                      <p className="text-xs text-gray-500">
-                        {format(new Date(transaction.date), 'PPP')}
-                      </p>
+                      <div className="flex items-center gap-x-2">
+                        <p className="text-xs text-gray-500">
+                          {format(new Date(transaction.date), 'PPP')}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {format(new Date(transaction.date), 'p')}
+                        </p>
+                      </div>
                       <p className="text-xs text-gray-500">
                         via {transaction.method || 'Cash'}
                       </p>

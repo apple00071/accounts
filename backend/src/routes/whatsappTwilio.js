@@ -25,7 +25,33 @@ function cleanPhoneNumber(phoneNumber) {
   if (!phoneNumber) return '';
   
   // Twilio uses format like "whatsapp:+1234567890"
-  return phoneNumber.replace('whatsapp:', '').replace('+', '');
+  // First remove "whatsapp:" prefix if present
+  let cleaned = phoneNumber.replace('whatsapp:', '');
+  
+  // Ensure it starts with "+"
+  if (!cleaned.startsWith('+')) {
+    cleaned = '+' + cleaned;
+  }
+  
+  return cleaned;
+}
+
+// Format phone number for Twilio WhatsApp
+function formatWhatsAppNumber(phoneNumber) {
+  if (!phoneNumber) return '';
+  
+  // Ensure it has "+" prefix
+  let formatted = phoneNumber;
+  if (!formatted.startsWith('+')) {
+    formatted = '+' + formatted;
+  }
+  
+  // Add "whatsapp:" prefix if not present
+  if (!formatted.startsWith('whatsapp:')) {
+    formatted = 'whatsapp:' + formatted;
+  }
+  
+  return formatted;
 }
 
 // Generate a TwiML response
@@ -37,45 +63,65 @@ function generateTwimlResponse(message) {
 }
 
 // Process and transform Twilio webhook data
-router.post('/', verifyTwilioRequest, async (req, res) => {
+router.post('/', express.urlencoded({ extended: true }), verifyTwilioRequest, async (req, res) => {
   try {
+    // Log the entire request body for debugging
+    console.log('Received Twilio webhook payload:', req.body);
+    
     // Extract message details from Twilio's request format
-    const from = cleanPhoneNumber(req.body.From);
+    // Remove 'whatsapp:' prefix and ensure proper format
+    const rawFrom = req.body.From || '';
+    const from = rawFrom.replace('whatsapp:', '').replace(/^\+/, '');
     const text = req.body.Body || '';
     
-    console.log(`Received WhatsApp message from ${from}: ${text}`);
+    if (!from) {
+      console.error('No sender phone number found in request');
+      res.set('Content-Type', 'text/xml');
+      res.send(generateTwimlResponse('Error: No sender phone number'));
+      return;
+    }
     
-    // Process synchronously because Twilio expects a TwiML response
+    console.log(`Received WhatsApp message from +${from}: ${text}`);
+    
     try {
       // Forward to our internal webhook handler
       const response = await axios.post(
-        process.env.INTERNAL_WEBHOOK_URL || 'http://localhost:5000/api/webhook',
-        { from, text }
+        process.env.INTERNAL_WEBHOOK_URL,
+        { from: `+${from}`, text }
       );
       
-      // Extract the message that was sent back to the user
-      const responseMessage = response.data?.messageToSend || 
-        "Thank you for your message. We'll get back to you soon.";
+      // Extract the message from the response
+      // The webhook returns { success: true, message: "..." } or { message: "..." }
+      let responseMessage;
+      if (response.data && (response.data.message || response.data.messageToSend)) {
+        responseMessage = response.data.message || response.data.messageToSend;
+      } else if (typeof response.data === 'string') {
+        responseMessage = response.data;
+      } else {
+        responseMessage = "Thank you for your message. We'll get back to you soon.";
+      }
+
+      console.log('Response to be sent:', responseMessage);
       
-      // Respond to Twilio with TwiML
+      // Generate and send TwiML response
+      const twiml = generateTwimlResponse(responseMessage);
+      console.log('Generated TwiML:', twiml);
+      
       res.set('Content-Type', 'text/xml');
-      res.send(generateTwimlResponse(responseMessage));
+      res.send(twiml);
       
       console.log('Message processed successfully');
     } catch (error) {
-      console.error('Error forwarding to internal webhook:', error.message);
+      console.error('Error forwarding to internal webhook:', error);
+      console.error('Error details:', {
+        message: error.message,
+        response: error.response?.data
+      });
       
-      // Handle error by sending a fallback TwiML response
+      // Handle error with TwiML response
       const fallbackMessage = "I'm having trouble processing your message right now. Please try again later.";
       res.set('Content-Type', 'text/xml');
       res.send(generateTwimlResponse(fallbackMessage));
-      
-      // Also try to send via our provider as a backup
-      try {
-        await sendWhatsAppMessage(from, fallbackMessage);
-      } catch (sendError) {
-        console.error('Failed to send fallback message:', sendError);
-      }
     }
   } catch (error) {
     console.error('Error processing Twilio webhook:', error);

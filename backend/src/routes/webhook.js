@@ -1,9 +1,12 @@
 const express = require('express');
 const router = express.Router();
+const { pool } = require('../db/pool');  // This now uses our Supabase wrapper
 const supabase = require('../config/supabase');
 const { parseMessage } = require('../utils/messageParser');
 const { generateResponse } = require('../utils/responseGenerator');
 const { sendWhatsAppMessage } = require('../utils/whatsappProvider');
+const { formatPhoneNumber } = require('../utils/validation');
+const { handleMessage } = require('../services/chatbot');
 
 // Helper function to format currency
 function formatCurrency(amount) {
@@ -15,9 +18,13 @@ function formatCurrency(amount) {
 }
 
 async function handlePayment(data, senderPhoneNumber) {
+  console.log('=== START PAYMENT PROCESSING ===');
+  console.log('Payment data:', { data, senderPhoneNumber });
+  
   const { name, amount, direction } = data;
   
   if (!name || !amount) {
+    console.log('Invalid payment data - missing name or amount');
     return { 
       error: 'Invalid payment information',
       responseMessage: "I couldn't process that payment. Please include who the payment is to/from and the amount. For example: 'Received 500 from Rahul' or 'Paid 1000 to Priya via UPI'."
@@ -25,32 +32,51 @@ async function handlePayment(data, senderPhoneNumber) {
   }
 
   try {
-    // Find or create customer by name (not sender's phone number)
+    // Find or create customer by name
+    console.log('Looking up customer:', name);
     let { data: customer, error: customerError } = await supabase
       .from('customers')
       .select('*')
       .ilike('name', name)
       .single();
 
+    console.log('Customer lookup result:', { customer, customerError });
+
     if (customerError || !customer) {
-      // Create new customer with the name from the message
+      // Create new customer with just the name
+      const uniqueId = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+      console.log('Creating new customer with ID:', uniqueId);
       const { data: newCustomer, error: createError } = await supabase
         .from('customers')
         .insert([{ 
           name,
-          phone_number: null // We don't know customer's phone number yet
+          phone_number: uniqueId
         }])
         .select()
         .single();
 
-      if (createError) throw createError;
+      if (createError) {
+        console.error('Error creating customer:', createError);
+        throw createError;
+      }
+      console.log('Created new customer:', newCustomer);
       customer = newCustomer;
     }
 
     // Map the direction to the correct enum value
-    const paymentDirection = direction === 'paid' ? 'DEBIT' : 'CREDIT';
+    // If message says "received from Kumar", it means Kumar PAID (CREDIT)
+    // If message says "paid to Kumar", it means Kumar was PAID (DEBIT)
+    const paymentDirection = direction === 'received' ? 'CREDIT' : 'DEBIT';
+    console.log('Payment direction:', { direction, paymentDirection });
 
-    // Create payment
+    // Create payment record
+    console.log('Creating payment record:', {
+      amount,
+      direction: paymentDirection,
+      customer_id: customer.id,
+      recorded_by: senderPhoneNumber
+    });
+    
     const { data: payment, error: paymentError } = await supabase
       .from('payments')
       .insert([{
@@ -59,12 +85,16 @@ async function handlePayment(data, senderPhoneNumber) {
         date: new Date().toISOString(),
         method: 'Cash',
         customer_id: customer.id,
-        recorded_by: senderPhoneNumber // Track who recorded this payment
+        recorded_by: senderPhoneNumber
       }])
       .select()
       .single();
 
-    if (paymentError) throw paymentError;
+    if (paymentError) {
+      console.error('Error creating payment:', paymentError);
+      throw paymentError;
+    }
+    console.log('Created payment record:', payment);
 
     // Calculate balance
     const { data: payments, error: paymentsError } = await supabase
@@ -72,21 +102,38 @@ async function handlePayment(data, senderPhoneNumber) {
       .select('*')
       .eq('customer_id', customer.id);
 
-    if (paymentsError) throw paymentsError;
+    if (paymentsError) {
+      console.error('Error fetching payments:', paymentsError);
+      throw paymentsError;
+    }
 
+    // Recalculate balance: 
+    // When we receive money (CREDIT), it reduces their balance (they paid us)
+    // When we pay money (DEBIT), it increases their balance (we owe them)
     const balance = payments.reduce((acc, payment) => {
       return payment.direction === 'CREDIT' 
-        ? acc + payment.amount 
-        : acc - payment.amount;
+        ? acc - payment.amount  // They paid us, so they owe us less
+        : acc + payment.amount; // We paid them, so they owe us more (negative means we owe them)
     }, 0);
+
+    console.log('Calculated balance:', balance);
 
     const formattedAmount = formatCurrency(amount);
     const formattedBalance = formatCurrency(Math.abs(balance));
     
-    const action = paymentDirection === 'CREDIT' ? 'received' : 'paid';
-    let responseMessage = `✅ Successfully recorded: ${formattedAmount} ${action} ${direction === 'paid' ? 'to' : 'from'} ${name}`;
-    responseMessage += `.\n\nCurrent balance with ${name}: ${formattedBalance} ${balance >= 0 ? '(to receive)' : '(to pay)'}`;
+    // Clarify the message based on direction
+    let responseMessage;
+    if (direction === 'received') {
+      responseMessage = `✅ Successfully recorded: You received ${formattedAmount} from ${name}`;
+    } else {
+      responseMessage = `✅ Successfully recorded: You paid ${formattedAmount} to ${name}`;
+    }
+    
+    // Add balance with clearer wording
+    responseMessage += `\n\nCurrent balance with ${name}: ${formattedBalance}`;
+    responseMessage += balance >= 0 ? ' (they owe you)' : ' (you owe them)';
 
+    console.log('=== END PAYMENT PROCESSING ===');
     return {
       message: responseMessage,
       payment,
@@ -281,39 +328,40 @@ router.post('/', async (req, res) => {
     
     switch (parsedMessage.type) {
       case 'GREETING':
-        responseMessage = handleGreeting(senderNumber);
+        const greetingResponse = handleGreeting(senderNumber);
+        responseMessage = greetingResponse.message;
         messageType = 'greeting';
         break;
       case 'HELP':
-        responseMessage = handleHelp();
+        const helpResponse = handleHelp();
+        responseMessage = helpResponse.message;
         messageType = 'help';
         break;
       case 'PAYMENT':
         const result = await handlePayment(parsedMessage, senderNumber);
-        responseMessage = result.responseMessage || result.message;
+        responseMessage = result.message;
         messageType = 'payment';
         break;
       case 'BALANCE_QUERY':
         const balanceResult = await handleBalanceQuery(parsedMessage.name, senderNumber);
-        responseMessage = balanceResult.responseMessage || balanceResult.message;
+        responseMessage = balanceResult.message;
         messageType = 'balance';
         break;
       case 'HISTORY_QUERY':
         const historyResult = await handleHistoryQuery(parsedMessage.name, senderNumber);
-        responseMessage = historyResult.responseMessage || historyResult.message;
+        responseMessage = historyResult.message;
         messageType = 'history';
         break;
       default:
-        responseMessage = handleUnclear();
+        const unclearResponse = handleUnclear();
+        responseMessage = unclearResponse.message;
         messageType = 'unclear';
     }
 
     // Log the message
     await logMessage(senderNumber, text, responseMessage, messageType);
 
-    // Send response back to the sender's number
-    await sendWhatsAppMessage(senderNumber, responseMessage);
-
+    // Return the response message without sending it
     res.json({ success: true, message: responseMessage });
   } catch (error) {
     console.error('Error processing webhook:', error);
@@ -321,6 +369,166 @@ router.post('/', async (req, res) => {
       error: 'Internal server error',
       message: 'Failed to process the webhook request' 
     });
+  }
+});
+
+// Handle incoming webhook messages
+router.post('/chat', async (req, res) => {
+    try {
+        const { from, message } = req.body;
+        
+        if (!from || !message) {
+            return res.status(400).json({ error: 'From and message are required' });
+        }
+
+        const phoneNumber = formatPhoneNumber(from);
+        const response = await handleMessage(phoneNumber, message);
+
+        // Store the message
+        await supabase
+            .from('chat_messages')
+            .insert([{
+                phone_number: phoneNumber,
+                content: message,
+                message_type: 'INCOMING'
+            }]);
+
+        // Store the response
+        await supabase
+            .from('chat_messages')
+            .insert([{
+                phone_number: phoneNumber,
+                content: response.message,
+                message_type: 'OUTGOING'
+            }]);
+
+        res.json({ 
+            success: true,
+            message: response.message
+        });
+    } catch (error) {
+        console.error('Webhook error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Get chat history for a business
+router.get('/history/:businessId', async (req, res) => {
+    try {
+        const { businessId } = req.params;
+        const { customerPhone } = req.query;
+
+        const messages = await pool.query(
+            `SELECT cm.* 
+             FROM chat_messages cm
+             JOIN chat_sessions cs ON cm.session_id = cs.id
+             WHERE cs.business_id = $1
+             AND ($2::text IS NULL OR cs.customer_phone = $2)
+             ORDER BY cm.sent_at DESC
+             LIMIT 100`,
+            [businessId, customerPhone || null]
+        );
+
+        res.json({ messages: messages.rows });
+    } catch (error) {
+        console.error('History fetch error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Get active chat sessions for a business
+router.get('/sessions/:businessId', async (req, res) => {
+  try {
+    const { businessId } = req.params;
+    
+    const sessions = await pool.query(
+      `SELECT cs.*, 
+              c.name as customer_name,
+              COUNT(cm.id) as unread_count
+       FROM chat_sessions cs
+       LEFT JOIN customers c ON c.phone_number = cs.customer_phone AND c.business_id = cs.business_id
+       LEFT JOIN chat_messages cm ON cm.session_id = cs.id AND cm.message_type = 'INCOMING' AND cm.is_read = false
+       WHERE cs.business_id = $1 AND cs.is_active = true
+       GROUP BY cs.id, c.name
+       ORDER BY cs.last_interaction DESC`,
+      [businessId]
+    );
+
+    res.json({ sessions: sessions.rows });
+  } catch (error) {
+    console.error('Error fetching sessions:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get messages for a chat session
+router.get('/messages/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    
+    const messages = await pool.query(
+      `SELECT * FROM chat_messages 
+       WHERE session_id = $1 
+       ORDER BY sent_at ASC`,
+      [sessionId]
+    );
+
+    // Mark messages as read
+    await pool.query(
+      `UPDATE chat_messages 
+       SET is_read = true 
+       WHERE session_id = $1 AND message_type = 'INCOMING' AND is_read = false`,
+      [sessionId]
+    );
+
+    res.json({ messages: messages.rows });
+  } catch (error) {
+    console.error('Error fetching messages:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Send a message in a chat session
+router.post('/messages/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { content } = req.body;
+
+    // Get session details
+    const sessionResult = await pool.query(
+      'SELECT * FROM chat_sessions WHERE id = $1',
+      [sessionId]
+    );
+
+    if (sessionResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    const session = sessionResult.rows[0];
+
+    // Store the message
+    const messageResult = await pool.query(
+      `INSERT INTO chat_messages (session_id, message_type, content)
+       VALUES ($1, 'OUTGOING', $2)
+       RETURNING *`,
+      [sessionId, content]
+    );
+
+    // Update session last interaction time
+    await pool.query(
+      `UPDATE chat_sessions 
+       SET last_interaction = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [sessionId]
+    );
+
+    // TODO: Send the message through the messaging provider
+    // This would integrate with your WhatsApp/messaging service
+
+    res.json({ message: messageResult.rows[0] });
+  } catch (error) {
+    console.error('Error sending message:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

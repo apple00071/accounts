@@ -6,54 +6,71 @@
 require('dotenv').config();
 
 const axios = require('axios');
+const { parseMessage } = require('./src/utils/messageParser');
+const { handlers } = require('./src/routes/webhook');
 
 // The message we want to test
 const testMessage = "Kumar paid 2000";
 const phoneNumber = process.env.BOTBIZ_PHONE_NUMBER || "919177197474";
 
+// Test messages
+const messages = [
+  "500090 received from Test",
+  "25000 received from Kumar",
+  "paid 5000 to Kumar",
+  "Kumar paid 2000",
+  "received 1000 from Pavan"
+];
+
+console.log("Testing message parser...\n");
+
+messages.forEach(message => {
+  console.log(`Input: "${message}"`);
+  const result = parseMessage(message);
+  console.log("Parsed result:", JSON.stringify(result, null, 2));
+  console.log("---\n");
+});
+
 // Simulate sending a message directly to the webhook
 async function testWebhook() {
-  console.log("\n=== Testing WhatsApp Message Processing ===");
-  console.log(`Phone Number: ${phoneNumber}`);
-  console.log(`Message: "${testMessage}"`);
+  // Test user's phone number (different from BotBiz number)
+  const userPhoneNumber = '919876543210';
   
-  try {
-    // Send directly to internal webhook endpoint
-    const response = await axios.post(
-      `http://localhost:${process.env.PORT || 3000}/webhook`,
-      {
-        from: phoneNumber,
-        text: testMessage
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json'
-        }
+  // Test messages
+  const messages = [
+    '25000 received from Kumar',
+    'paid 5000 to Kumar',
+    '25000 received from Pavan'
+  ];
+
+  console.log('=== Testing WhatsApp Payment Messages ===\n');
+
+  for (const messageText of messages) {
+    console.log(`Testing message: "${messageText}"`);
+    
+    try {
+      // Parse the message
+      const parsedMessage = parseMessage(messageText);
+      console.log('\nParsed message:', parsedMessage);
+
+      // Process the payment
+      const result = await handlers.handlePayment(parsedMessage, userPhoneNumber);
+      console.log('\nResult:', result);
+      
+      if (result.error) {
+        console.log('\n❌ Error:', result.error);
+      } else {
+        console.log('\n✅ Success! Response:', result.message);
       }
-    );
-    
-    console.log("\n✅ Message processed successfully!");
-    console.log("Response:", JSON.stringify(response.data, null, 2));
-    
-    // The response should include parsed payment information
-    if (response.data.messageToSend) {
-      console.log("\nThe system responded with:");
-      console.log(response.data.messageToSend);
+    } catch (error) {
+      console.error('\n❌ Error processing message:', error);
     }
     
-  } catch (error) {
-    console.error("\n❌ Error testing webhook:");
-    
-    if (error.response) {
-      console.error(`Status: ${error.response.status}`);
-      console.error("Error details:", error.response.data);
-    } else {
-      console.error(error.message);
-    }
+    console.log('\n-------------------\n');
   }
+
+  console.log('Test completed!');
 }
 
 // Run the test
-testWebhook().then(() => {
-  console.log("\nTest completed!");
-}); 
+testWebhook().catch(console.error); 

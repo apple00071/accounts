@@ -18,20 +18,81 @@ function parseMessage(message) {
   const text = message.trim().toLowerCase();
   
   // Check for payment-related messages
-  // Format: "[Name] paid [Amount]" or "[Name] received [Amount]"
-  const paymentRegex = /([a-z\s]+)(?:\s+)(paid|received|gave|got|sent)(?:\s+)(\d+)/i;
-  const paymentMatch = text.match(paymentRegex);
+  // Format 1: "[Amount] received from [Name]" or "[Amount] paid to [Name]"
+  // Format 2: "[Name] paid [Amount]" or "[Name] received [Amount]"
+  // Format 3: "paid [Amount] to [Name]" or "received [Amount] from [Name]"
+  const paymentRegex1 = /^(\d+)(?:\s+)(paid|received|gave|got|sent)(?:\s+(?:to|from)\s+)([a-z\s]+)/i;
+  const paymentRegex2 = /([a-z\s]+)(?:\s+)(paid|received|gave|got|sent)(?:\s+)(\d+)/i;
+  const paymentRegex3 = /(paid|received|gave|got|sent)(?:\s+)(\d+)(?:\s+(?:to|from)\s+)([a-z\s]+)/i;
+  const paymentRegex4 = /^(\d+)(?:\s+)(received|got)(?:\s+from\s+)([a-z\s]+)/i; // For "500 received from Test"
   
-  if (paymentMatch) {
-    const name = paymentMatch[1].trim();
-    const direction = paymentMatch[2].toLowerCase();
-    const amount = parseInt(paymentMatch[3], 10);
+  const paymentMatch1 = text.match(paymentRegex1);
+  const paymentMatch2 = text.match(paymentRegex2);
+  const paymentMatch3 = text.match(paymentRegex3);
+  const paymentMatch4 = text.match(paymentRegex4);
+  
+  if (paymentMatch4) {
+    const amount = parseInt(paymentMatch4[1], 10);
+    const name = paymentMatch4[3].trim();
     
     return {
       type: 'PAYMENT',
       name,
       amount,
-      direction: direction === 'paid' || direction === 'gave' || direction === 'sent' ? 'paid' : 'received',
+      direction: 'received', // You received money FROM them
+      originalMessage: message
+    };
+  }
+  
+  if (paymentMatch1) {
+    const amount = parseInt(paymentMatch1[1], 10);
+    const direction = paymentMatch1[2].toLowerCase();
+    const name = paymentMatch1[3].trim();
+    
+    // Clarify direction based on preposition
+    const isReceived = direction === 'received' || direction === 'got' || 
+                      (text.includes('from') && !text.includes('to'));
+    
+    return {
+      type: 'PAYMENT',
+      name,
+      amount,
+      direction: isReceived ? 'received' : 'paid',
+      originalMessage: message
+    };
+  }
+  
+  if (paymentMatch2) {
+    const name = paymentMatch2[1].trim();
+    const direction = paymentMatch2[2].toLowerCase();
+    const amount = parseInt(paymentMatch2[3], 10);
+    
+    // If "[Name] paid", they paid you (you received)
+    const isReceived = direction === 'paid' || direction === 'gave' || direction === 'sent';
+    
+    return {
+      type: 'PAYMENT',
+      name,
+      amount,
+      direction: isReceived ? 'received' : 'paid',
+      originalMessage: message
+    };
+  }
+
+  if (paymentMatch3) {
+    const direction = paymentMatch3[1].toLowerCase();
+    const amount = parseInt(paymentMatch3[2], 10);
+    const name = paymentMatch3[3].trim();
+    
+    // Clarify direction based on preposition
+    const isReceived = direction === 'received' || direction === 'got' || 
+                      (text.includes('from') && !text.includes('to'));
+    
+    return {
+      type: 'PAYMENT',
+      name,
+      amount,
+      direction: isReceived ? 'received' : 'paid',
       originalMessage: message
     };
   }
